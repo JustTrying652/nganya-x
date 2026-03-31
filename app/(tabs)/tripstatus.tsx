@@ -4,10 +4,13 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Linking,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -42,6 +45,9 @@ export default function TripStatusScreen() {
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
 
   useEffect(() => {
     if (!bookingId) {
@@ -53,10 +59,7 @@ export default function TripStatusScreen() {
       doc(db, "bookings", bookingId),
       (docSnapshot) => {
         if (docSnapshot.exists()) {
-          setBooking({
-            id: docSnapshot.id,
-            ...docSnapshot.data(),
-          } as Booking);
+          setBooking({ id: docSnapshot.id, ...docSnapshot.data() } as Booking);
         }
         setLoading(false);
       },
@@ -91,6 +94,106 @@ export default function TripStatusScreen() {
     }
   };
 
+  const handleContactSupport = () => {
+    if (!booking) return;
+    const email = "ngataevans@gmail.com";
+    const subject = `Support Request - Booking ${booking.id.substring(0, 8)}`;
+    const body = `Hi, I need help with my booking.\n\nBooking ID: ${booking.id}\nRoute: ${booking.route}\nTravel Date: ${booking.travelDate}\n\nIssue: `;
+    Linking.openURL(
+      `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+    );
+  };
+
+  const handlePayNow = async () => {
+    if (!booking) return;
+    if (!phoneNumber || phoneNumber.trim() === "") {
+      Alert.alert("Error", "Please enter a phone number");
+      return;
+    }
+
+    setShowPayModal(false);
+    setPaymentLoading(true);
+
+    try {
+      const response = await fetch(
+        "https://mpesa-cahjhnw66a-uc.a.run.app/initiatePayment",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: phoneNumber.trim(),
+            amount: booking.totalPrice,
+            bookingId: booking.id,
+          }),
+        },
+      );
+
+      const result = await response.json();
+
+      if (!result.success) {
+        Alert.alert("Error", result.message || "Payment failed");
+        setPaymentLoading(false);
+        return;
+      }
+
+      const checkoutRequestID = result.data.CheckoutRequestID;
+      Alert.alert(
+        "Payment Initiated",
+        "Check your phone for the M-Pesa prompt. We will check your payment status automatically.",
+      );
+
+      let attempts = 0;
+      const maxAttempts = 6;
+
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const queryResponse = await fetch(
+            "https://mpesa-cahjhnw66a-uc.a.run.app/queryPayment",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ checkoutRequestID }),
+            },
+          );
+          const queryResult = await queryResponse.json();
+          console.log("Query result:", queryResult);
+
+          if (queryResult.status === "completed") {
+            clearInterval(pollInterval);
+            setPaymentLoading(false);
+            setPhoneNumber("");
+            Alert.alert(
+              "Success! 🎉",
+              "Payment successful! Your booking is confirmed.",
+            );
+          } else if (queryResult.status === "cancelled") {
+            clearInterval(pollInterval);
+            setPaymentLoading(false);
+            Alert.alert("Cancelled", "Payment was cancelled.");
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            setPaymentLoading(false);
+            Alert.alert(
+              "Taking too long",
+              "Payment is still processing. Please check your bookings in a few minutes.",
+            );
+          }
+        } catch (queryError) {
+          console.error("Query error:", queryError);
+          if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            setPaymentLoading(false);
+          }
+        }
+      }, 5000);
+    } catch (error) {
+      console.error("Payment error:", error);
+      setPaymentLoading(false);
+      Alert.alert("Error", "Failed to initiate payment. Please try again.");
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -121,19 +224,9 @@ export default function TripStatusScreen() {
   const currentStatusIndex = getCurrentStatusIndex();
   const isCancelled = booking.status === "Cancelled";
 
-  const handleContactSupport = () => {
-    const email = "ngataevans@gmail.com";
-    const subject = `Support Request - Booking ${booking.id.substring(0, 8)}`;
-    const body = `Hi, I need help with my booking.\n\nBooking ID: ${booking.id}\nRoute: ${booking.route}\nTravel Date: ${booking.travelDate}\n\nIssue: `;
-    Linking.openURL(
-      `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
-    );
-  };
-
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
-        {/* Header */}
         <TouchableOpacity
           style={styles.backLink}
           onPress={() => router.push("/mybookings")}
@@ -141,7 +234,6 @@ export default function TripStatusScreen() {
           <Text style={styles.backLinkText}>← Back to My Bookings</Text>
         </TouchableOpacity>
 
-        {/* Trip Info Card */}
         <View style={styles.infoCard}>
           <Text style={styles.routeName}>{booking.route}</Text>
           <Text style={styles.travelDate}>📅 {booking.travelDate}</Text>
@@ -165,7 +257,6 @@ export default function TripStatusScreen() {
           </View>
         </View>
 
-        {/* Current Status Banner */}
         <View
           style={[
             styles.statusBanner,
@@ -189,15 +280,12 @@ export default function TripStatusScreen() {
           </Text>
         </View>
 
-        {/* Status Timeline */}
         {!isCancelled && (
           <View style={styles.timelineCard}>
             <Text style={styles.timelineTitle}>Trip Progress</Text>
-
             {STATUS_STEPS.map((step, index) => {
               const isCompleted = index <= currentStatusIndex;
               const isCurrent = index === currentStatusIndex;
-
               return (
                 <View key={step.key} style={styles.timelineStep}>
                   {index > 0 && (
@@ -210,7 +298,6 @@ export default function TripStatusScreen() {
                       ]}
                     />
                   )}
-
                   <View style={styles.stepContainer}>
                     <View
                       style={[
@@ -231,7 +318,6 @@ export default function TripStatusScreen() {
                     >
                       <Text style={styles.iconText}>{step.icon}</Text>
                     </View>
-
                     <View style={styles.stepInfo}>
                       <Text
                         style={[
@@ -258,7 +344,6 @@ export default function TripStatusScreen() {
           </View>
         )}
 
-        {/* Cancelled Status */}
         {isCancelled && (
           <View style={styles.cancelledCard}>
             <Text style={styles.cancelledIcon}>🚫</Text>
@@ -270,7 +355,6 @@ export default function TripStatusScreen() {
           </View>
         )}
 
-        {/* Payment Status */}
         <View style={styles.paymentCard}>
           <Text style={styles.paymentTitle}>Payment Status</Text>
           <View
@@ -308,21 +392,23 @@ export default function TripStatusScreen() {
           </View>
 
           {booking.paymentStatus === "Pending" && (
-            <View style={styles.comingSoonContainer}>
-              <Text style={styles.comingSoonIcon}>🔒</Text>
-              <View>
-                <Text style={styles.comingSoonTitle}>
-                  M-Pesa Payment Coming Soon
-                </Text>
-                <Text style={styles.comingSoonSubtitle}>
-                  Online payment will be available in a future update.
-                </Text>
-              </View>
-            </View>
+            <TouchableOpacity
+              style={[
+                styles.payNowButton,
+                paymentLoading && styles.payNowButtonDisabled,
+              ]}
+              onPress={() => setShowPayModal(true)}
+              disabled={paymentLoading}
+            >
+              {paymentLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.payNowButtonText}>Pay via M-Pesa</Text>
+              )}
+            </TouchableOpacity>
           )}
         </View>
 
-        {/* Support Section */}
         <View style={styles.supportCard}>
           <Text style={styles.supportTitle}>Need Help?</Text>
           <Text style={styles.supportText}>
@@ -336,26 +422,57 @@ export default function TripStatusScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Phone Number Modal */}
+      <Modal visible={showPayModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>M-Pesa Payment</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter your M-Pesa phone number to pay KSh {booking?.totalPrice}
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g., 0712345678"
+              placeholderTextColor="#999"
+              keyboardType="phone-pad"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              maxLength={12}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowPayModal(false);
+                  setPhoneNumber("");
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalPayButton}
+                onPress={handlePayNow}
+              >
+                <Text style={styles.modalPayText}>Pay Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8f9fa",
-  },
+  container: { flex: 1, backgroundColor: "#f8f9fa" },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#f8f9fa",
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#666",
-  },
+  loadingText: { marginTop: 16, fontSize: 16, color: "#666" },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
@@ -363,10 +480,7 @@ const styles = StyleSheet.create({
     padding: 40,
     backgroundColor: "#f8f9fa",
   },
-  errorIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
+  errorIcon: { fontSize: 64, marginBottom: 16 },
   errorTitle: {
     fontSize: 24,
     fontWeight: "bold",
@@ -385,24 +499,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 32,
   },
-  backButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  content: {
-    padding: 20,
-    paddingTop: 60,
-    paddingBottom: 40,
-  },
-  backLink: {
-    marginBottom: 24,
-  },
-  backLinkText: {
-    fontSize: 16,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
+  backButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
+  backLink: { marginBottom: 24 },
+  backLinkText: { fontSize: 16, color: "#007AFF", fontWeight: "500" },
   infoCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -420,55 +520,25 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 12,
   },
-  travelDate: {
-    fontSize: 15,
-    color: "#666",
-    marginBottom: 6,
-  },
-  pickupPoint: {
-    fontSize: 15,
-    color: "#666",
-    marginBottom: 16,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#e0e0e0",
-    marginVertical: 12,
-  },
+  travelDate: { fontSize: 15, color: "#666", marginBottom: 6 },
+  pickupPoint: { fontSize: 15, color: "#666", marginBottom: 16 },
+  divider: { height: 1, backgroundColor: "#e0e0e0", marginVertical: 12 },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 8,
   },
-  infoLabel: {
-    fontSize: 14,
-    color: "#666",
-  },
-  infoValue: {
-    fontSize: 14,
-    color: "#000",
-    fontWeight: "600",
-  },
-  infoValueSmall: {
-    fontSize: 12,
-    color: "#000",
-    fontWeight: "500",
-  },
+  infoLabel: { fontSize: 14, color: "#666" },
+  infoValue: { fontSize: 14, color: "#000", fontWeight: "600" },
+  infoValueSmall: { fontSize: 12, color: "#000", fontWeight: "500" },
   statusBanner: {
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
     alignItems: "center",
   },
-  statusBannerLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 4,
-  },
-  statusBannerText: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
+  statusBannerLabel: { fontSize: 13, color: "#666", marginBottom: 4 },
+  statusBannerText: { fontSize: 24, fontWeight: "bold" },
   timelineCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -486,21 +556,9 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 24,
   },
-  timelineStep: {
-    position: "relative",
-    marginBottom: 24,
-  },
-  connector: {
-    position: "absolute",
-    left: 23,
-    top: -24,
-    width: 2,
-    height: 24,
-  },
-  stepContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  timelineStep: { position: "relative", marginBottom: 24 },
+  connector: { position: "absolute", left: 23, top: -24, width: 2, height: 24 },
+  stepContainer: { flexDirection: "row", alignItems: "center" },
   iconCircle: {
     width: 48,
     height: 48,
@@ -510,26 +568,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 16,
   },
-  iconText: {
-    fontSize: 20,
-  },
-  stepInfo: {
-    flex: 1,
-  },
-  stepLabel: {
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  currentBadge: {
-    fontSize: 12,
-    color: "#FF9800",
-    fontWeight: "600",
-  },
-  completedText: {
-    fontSize: 12,
-    color: "#4CAF50",
-    fontWeight: "600",
-  },
+  iconText: { fontSize: 20 },
+  stepInfo: { flex: 1 },
+  stepLabel: { fontSize: 16, marginBottom: 4 },
+  currentBadge: { fontSize: 12, color: "#FF9800", fontWeight: "600" },
+  completedText: { fontSize: 12, color: "#4CAF50", fontWeight: "600" },
   cancelledCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -542,10 +585,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  cancelledIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
+  cancelledIcon: { fontSize: 64, marginBottom: 16 },
   cancelledTitle: {
     fontSize: 20,
     fontWeight: "bold",
@@ -582,31 +622,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     marginBottom: 12,
   },
-  paymentBadgeText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  comingSoonContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
+  paymentBadgeText: { fontSize: 14, fontWeight: "600" },
+  payNowButton: {
+    backgroundColor: "#4CAF50",
     borderRadius: 8,
-    padding: 12,
-    gap: 10,
+    padding: 14,
+    alignItems: "center",
   },
-  comingSoonIcon: {
-    fontSize: 24,
-  },
-  comingSoonTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 2,
-  },
-  comingSoonSubtitle: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
+  payNowButtonDisabled: { opacity: 0.6 },
+  payNowButtonText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   supportCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -635,9 +659,50 @@ const styles = StyleSheet.create({
     padding: 14,
     alignItems: "center",
   },
-  supportButtonText: {
-    color: "#000",
-    fontSize: 15,
-    fontWeight: "600",
+  supportButtonText: { color: "#000", fontSize: 15, fontWeight: "600" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
   },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#000",
+    marginBottom: 8,
+  },
+  modalSubtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
+  modalInput: {
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    padding: 14,
+    fontSize: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  modalButtons: { flexDirection: "row", gap: 12 },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    padding: 14,
+    alignItems: "center",
+  },
+  modalCancelText: { fontSize: 15, fontWeight: "600", color: "#666" },
+  modalPayButton: {
+    flex: 1,
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    padding: 14,
+    alignItems: "center",
+  },
+  modalPayText: { fontSize: 15, fontWeight: "600", color: "#fff" },
 });

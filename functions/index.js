@@ -11,19 +11,19 @@ app.use(cors);
 app.use(express.json());
 
 // Your M-Pesa credentials from Safaricom Developer Portal
-const CONSUMER_KEY = "AYszQKJDZABY9uUFe9z6g7APTENDpvPbBc6lV45BWk73H5nQ";
-const CONSUMER_SECRET =
-  "jwUtRAZNlxAmObVDrdhQwAkmdReADxloPOmSyBDGYQtVDw5qevUfGPTFG9OWZ5Kx";
-const SHORTCODE = "174379"; // This is the test shortcode for Lipa na M-Pesa Online
-const PASSKEY =
-  "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"; // This is the test passkey for Lipa na M-Pesa Online
-const CALLBACK_URL = "https://mpesa-cahjhnw66a-uc.a.run.app/mpesaCallback"; // We'll update this later
+const CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY;
+const CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET;
+const SHORTCODE = process.env.MPESA_SHORTCODE;
+const PASSKEY = process.env.MPESA_PASSKEY;
+const CALLBACK_URL = process.env.MPESA_CALLBACK_URL;
 
 // M-Pesa API endpoints
 const AUTH_URL =
   "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials";
 const STK_PUSH_URL =
   "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest";
+const STK_QUERY_URL =
+  "https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query";
 
 // Get OAuth token
 async function getAccessToken() {
@@ -60,7 +60,6 @@ app.post("/initiatePayment", async (req, res) => {
   try {
     const { phone, amount, bookingId } = req.body;
 
-    // Validate inputs
     if (!phone || !amount || !bookingId) {
       return res.status(400).json({
         success: false,
@@ -68,7 +67,6 @@ app.post("/initiatePayment", async (req, res) => {
       });
     }
 
-    // Format phone number (remove leading 0, add 254)
     let formattedPhone = phone.toString().trim();
     if (formattedPhone.startsWith("0")) {
       formattedPhone = "254" + formattedPhone.substring(1);
@@ -138,10 +136,8 @@ app.post("/mpesaCallback", async (req, res) => {
     const { Body } = req.body;
     const { stkCallback } = Body;
 
-    const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc } =
-      stkCallback;
+    const { CheckoutRequestID, ResultCode, ResultDesc } = stkCallback;
 
-    // Find the transaction
     const transactionsRef = admin.firestore().collection("mpesa_transactions");
     const snapshot = await transactionsRef
       .where("checkoutRequestID", "==", CheckoutRequestID)
@@ -156,9 +152,7 @@ app.post("/mpesaCallback", async (req, res) => {
     const transactionDoc = snapshot.docs[0];
     const transactionData = transactionDoc.data();
 
-    // Update transaction status
     if (ResultCode === 0) {
-      // Payment successful
       const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
       const mpesaReceiptNumber = callbackMetadata.find(
         (item) => item.Name === "MpesaReceiptNumber",
@@ -172,7 +166,6 @@ app.post("/mpesaCallback", async (req, res) => {
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Update booking payment status
       await admin
         .firestore()
         .collection("bookings")
@@ -186,7 +179,6 @@ app.post("/mpesaCallback", async (req, res) => {
         `Payment successful for booking: ${transactionData.bookingId}`,
       );
     } else {
-      // Payment failed
       await transactionDoc.ref.update({
         status: "failed",
         resultCode: ResultCode,
@@ -212,4 +204,97 @@ app.post("/mpesaCallback", async (req, res) => {
   }
 });
 
+// STK Push Query endpoint
+app.post("/queryPayment", async (req, res) => {
+  try {
+    const { checkoutRequestID } = req.body;
+
+    if (!checkoutRequestID) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing checkoutRequestID",
+      });
+    }
+
+    const accessToken = await getAccessToken();
+    const { password, timestamp } = generatePassword();
+
+    const response = await axios.post(
+      STK_QUERY_URL,
+      {
+        BusinessShortCode: SHORTCODE,
+        Password: password,
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestID,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+
+    const { ResultCode, ResultDesc } = response.data;
+
+    if (ResultCode === 0 || ResultCode === "0") {
+      const transactionsRef = admin
+        .firestore()
+        .collection("mpesa_transactions");
+      const snapshot = await transactionsRef
+        .where("checkoutRequestID", "==", checkoutRequestID)
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        const transactionDoc = snapshot.docs[0];
+        const transactionData = transactionDoc.data();
+
+        await transactionDoc.ref.update({
+          status: "completed",
+          resultCode: ResultCode,
+          resultDesc: ResultDesc,
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await admin
+          .firestore()
+          .collection("bookings")
+          .doc(transactionData.bookingId)
+          .update({
+            paymentStatus: "Paid",
+          });
+      }
+
+      return res.status(200).json({
+        success: true,
+        resultCode: ResultCode,
+        resultDesc: ResultDesc,
+        status: "completed",
+      });
+    } else if (ResultCode === 1032 || ResultCode === "1032") {
+      return res.status(200).json({
+        success: false,
+        resultCode: ResultCode,
+        resultDesc: "Request cancelled by user",
+        status: "cancelled",
+      });
+    } else {
+      return res.status(200).json({
+        success: false,
+        resultCode: ResultCode,
+        resultDesc: ResultDesc,
+        status: "pending",
+      });
+    }
+  } catch (error) {
+    console.error("Query error:", error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Query failed",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// IMPORTANT: exports must always be at the very end
 exports.mpesa = functions.https.onRequest(app);
