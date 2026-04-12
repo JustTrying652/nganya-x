@@ -358,7 +358,9 @@ export default function BookingScreen() {
             style: "cancel",
             onPress: () => {
               resetForm();
-              router.push("/mybookings");
+              setTimeout(() => {
+                router.push("/mybookings");
+              }, 300);
             },
           },
           {
@@ -367,7 +369,9 @@ export default function BookingScreen() {
               setPendingBookingId(docRef.id);
               setPendingAmount(totalPrice);
               setPhoneNumber("");
-              setShowPayModal(true);
+              setTimeout(() => {
+                setShowPayModal(true);
+              }, 500);
             },
           },
         ],
