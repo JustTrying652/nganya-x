@@ -7,12 +7,10 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -173,11 +171,6 @@ export default function BookingScreen() {
   const [dateSelected, setDateSelected] = useState(false);
   const [numberOfSeats, setNumberOfSeats] = useState("1");
   const [loading, setLoading] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [showPayModal, setShowPayModal] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
-  const [pendingAmount, setPendingAmount] = useState(0);
 
   const currentRoute = ROUTES.find((r) => r.id === selectedRoute);
   const totalPrice = currentRoute
@@ -197,109 +190,6 @@ export default function BookingScreen() {
     setTravelDate(new Date());
     setDateSelected(false);
     setNumberOfSeats("1");
-  };
-
-  const initiatePayment = async () => {
-    if (!pendingBookingId) return;
-    if (!phoneNumber || phoneNumber.trim() === "") {
-      Alert.alert("Error", "Please enter a phone number");
-      return;
-    }
-
-    setShowPayModal(false);
-    setPaymentLoading(true);
-
-    try {
-      const response = await fetch(
-        "https://mpesa-cahjhnw66a-uc.a.run.app/initiatePayment",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            phone: phoneNumber.trim(),
-            amount: pendingAmount,
-            bookingId: pendingBookingId,
-          }),
-        },
-      );
-
-      const result = await response.json();
-
-      if (!result.success) {
-        Alert.alert("Error", result.message || "Payment failed");
-        setPaymentLoading(false);
-        return;
-      }
-
-      const checkoutRequestID = result.data.CheckoutRequestID;
-      Alert.alert(
-        "Payment Initiated",
-        "Check your phone for the M-Pesa prompt. We will check your payment status automatically.",
-      );
-
-      let attempts = 0;
-      const maxAttempts = 6;
-
-      const pollInterval = setInterval(async () => {
-        attempts++;
-        try {
-          const queryResponse = await fetch(
-            "https://mpesa-cahjhnw66a-uc.a.run.app/queryPayment",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ checkoutRequestID }),
-            },
-          );
-          const queryResult = await queryResponse.json();
-
-          if (queryResult.status === "completed") {
-            clearInterval(pollInterval);
-            setPaymentLoading(false);
-            setPhoneNumber("");
-            resetForm();
-            Alert.alert(
-              "Success! 🎉",
-              "Payment successful! Your booking is confirmed.",
-              [
-                {
-                  text: "View Bookings",
-                  onPress: () => router.push("/mybookings"),
-                },
-              ],
-            );
-          } else if (queryResult.status === "cancelled") {
-            clearInterval(pollInterval);
-            setPaymentLoading(false);
-            Alert.alert(
-              "Cancelled",
-              "Payment was cancelled. You can pay later from My Bookings.",
-            );
-            resetForm();
-            router.push("/mybookings");
-          } else if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            setPaymentLoading(false);
-            Alert.alert(
-              "Taking too long",
-              "Payment is still processing. Check My Bookings in a few minutes.",
-            );
-            resetForm();
-            router.push("/mybookings");
-          }
-        } catch (queryError) {
-          console.error("Query error:", queryError);
-          if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            setPaymentLoading(false);
-          }
-        }
-      }, 5000);
-    } catch (error) {
-      console.error("Payment error:", error);
-      setPaymentLoading(false);
-      Alert.alert("Error", "Failed to initiate payment. Please try again.");
-    }
   };
 
   const handleBooking = async () => {
@@ -346,36 +236,9 @@ export default function BookingScreen() {
         createdAt: new Date().toISOString(),
       };
 
-      const docRef = await addDoc(collection(db, "bookings"), booking);
-      setLoading(false);
-
-      Alert.alert(
-        "Booking Created!",
-        `Your booking has been created.\n\nBooking ID: ${docRef.id}\nTotal: KSh ${totalPrice}\n\nProceed to payment?`,
-        [
-          {
-            text: "Later",
-            style: "cancel",
-            onPress: () => {
-              resetForm();
-              setTimeout(() => {
-                router.push("/mybookings");
-              }, 300);
-            },
-          },
-          {
-            text: "Pay Now",
-            onPress: () => {
-              setPendingBookingId(docRef.id);
-              setPendingAmount(totalPrice);
-              setPhoneNumber("");
-              setTimeout(() => {
-                setShowPayModal(true);
-              }, 500);
-            },
-          },
-        ],
-      );
+      await addDoc(collection(db, "bookings"), booking);
+      resetForm();
+      router.push("/mybookings");
     } catch (error) {
       console.error("Booking error:", error);
       setLoading(false);
@@ -522,14 +385,11 @@ export default function BookingScreen() {
         )}
 
         <TouchableOpacity
-          style={[
-            styles.bookButton,
-            (loading || paymentLoading) && styles.bookButtonDisabled,
-          ]}
+          style={[styles.bookButton, loading && styles.bookButtonDisabled]}
           onPress={handleBooking}
-          disabled={loading || paymentLoading}
+          disabled={loading}
         >
-          {loading || paymentLoading ? (
+          {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.bookButtonText}>Confirm Booking</Text>
@@ -539,51 +399,11 @@ export default function BookingScreen() {
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => router.push("/home")}
-          disabled={loading || paymentLoading}
+          disabled={loading}
         >
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Phone Number Modal */}
-      <Modal visible={showPayModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>M-Pesa Payment</Text>
-            <Text style={styles.modalSubtitle}>
-              Enter your M-Pesa phone number to pay KSh {pendingAmount}
-            </Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g., 0712345678"
-              placeholderTextColor="#999"
-              keyboardType="phone-pad"
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              maxLength={12}
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => {
-                  setShowPayModal(false);
-                  setPhoneNumber("");
-                  resetForm();
-                  router.push("/mybookings");
-                }}
-              >
-                <Text style={styles.modalCancelText}>Later</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalPayButton}
-                onPress={initiatePayment}
-              >
-                <Text style={styles.modalPayText}>Pay Now</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -613,14 +433,6 @@ const styles = StyleSheet.create({
   },
   dateText: { fontSize: 16, color: "#000" },
   datePlaceholder: { fontSize: 16, color: "#999" },
-  input: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    padding: 16,
-    fontSize: 16,
-  },
   priceCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -661,51 +473,4 @@ const styles = StyleSheet.create({
     borderColor: "#e0e0e0",
   },
   cancelButtonText: { color: "#666", fontSize: 16, fontWeight: "500" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContainer: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#000",
-    marginBottom: 8,
-  },
-  modalSubtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
-  modalInput: {
-    backgroundColor: "#f5f5f5",
-    borderRadius: 8,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  modalButtons: { flexDirection: "row", justifyContent: "space-between" },
-  modalCancelButton: {
-    flex: 1,
-    marginHorizontal: 6,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 8,
-    padding: 14,
-    alignItems: "center",
-  },
-  modalCancelText: { fontSize: 15, fontWeight: "600", color: "#666" },
-  modalPayButton: {
-    flex: 1,
-    marginHorizontal: 6,
-    backgroundColor: "#4CAF50",
-    borderRadius: 8,
-    padding: 14,
-    alignItems: "center",
-  },
-  modalPayText: { fontSize: 15, fontWeight: "600", color: "#fff" },
 });
