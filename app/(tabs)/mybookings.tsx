@@ -652,9 +652,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
-  modalButtons: { flexDirection: "row", gap: 12 },
+  modalButtons: { flexDirection: "row", justifyContent: "space-between" },
   modalCancelButton: {
     flex: 1,
+    marginHorizontal: 6,
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
     padding: 14,
@@ -663,6 +664,7 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 15, fontWeight: "600", color: "#666" },
   modalPayButton: {
     flex: 1,
+    marginHorizontal: 6,
     backgroundColor: "#4CAF50",
     borderRadius: 8,
     padding: 14,
