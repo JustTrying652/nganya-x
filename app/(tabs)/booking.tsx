@@ -237,6 +237,7 @@ export default function BookingScreen() {
       };
 
       await addDoc(collection(db, "bookings"), booking);
+      setLoading(false); // ← ADD THIS LINE
       resetForm();
       router.push("/mybookings");
     } catch (error) {
