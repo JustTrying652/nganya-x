@@ -7,12 +7,11 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 
 const ROUTES = [
@@ -335,10 +334,10 @@ export default function BookingScreen() {
             <DateTimePicker
               value={travelDate}
               mode="date"
-              display={Platform.OS === "android" ? "calendar" : "spinner"}
+              display={"default"}
               minimumDate={new Date()}
               onChange={(event, selectedDate) => {
-                setShowDatePicker(Platform.OS === "ios");
+                setShowDatePicker(false);
                 if (event.type === "set" && selectedDate) {
                   setTravelDate(selectedDate);
                   setDateSelected(true);
