@@ -100,7 +100,7 @@ export default function HomeScreen() {
 
         {/* Info Section */}
         <View style={styles.infoSection}>
-          <Text style={styles.infoTitle}>How it works</Text>
+          <Text style={styles.infoTitle}>How it </Text>
           <View style={styles.infoStep}>
             <Text style={styles.stepNumber}>1</Text>
             <Text style={styles.stepText}>

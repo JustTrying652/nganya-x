@@ -454,7 +454,7 @@ export default function TripStatusScreen() {
                 style={styles.modalPayButton}
                 onPress={handlePayNow}
               >
-                <Text style={styles.modalPayText}>Pay </Text>
+                <Text style={styles.modalPayText}>Pay Now</Text>
               </TouchableOpacity>
             </View>
           </View>
