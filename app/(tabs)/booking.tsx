@@ -348,7 +348,7 @@ export default function BookingScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Number of Seats</Text>
+          <Text style={styles.label}>Number of </Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={numberOfSeats}
