@@ -153,7 +153,7 @@ const ROUTES = [
   },
   {
     id: "18",
-    name: "Nanyuki → Nairobi",
+    name: "Nanyuki → ",
     from: "Nanyuki",
     to: "Nairobi",
     price: 700,
