@@ -11,13 +11,13 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 const ROUTES = [
   {
     id: "1",
-    name: "Nairobi → Mombasa",
+    name: "Nairobi → ",
     from: "Nairobi",
     to: "Mombasa",
     price: 1500,
