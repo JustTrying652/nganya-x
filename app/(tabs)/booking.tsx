@@ -17,7 +17,7 @@ import {
 const ROUTES = [
   {
     id: "1",
-    name: "Nairobi → ",
+    name: "Nairobi → Mombasa",
     from: "Nairobi",
     to: "Mombasa",
     price: 1500,
