@@ -392,7 +392,7 @@ export default function BookingScreen() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.bookButtonText}>Confirm Booking</Text>
+            <Text style={styles.bookButtonText}>Confirm </Text>
           )}
         </TouchableOpacity>
 
