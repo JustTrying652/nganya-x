@@ -250,7 +250,7 @@ export default function BookingScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Book Your Trip</Text>
+          <Text style={styles.title}>Book Your </Text>
           <Text style={styles.subtitle}>
             Choose your route and travel details
           </Text>
