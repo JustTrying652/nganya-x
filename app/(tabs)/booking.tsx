@@ -298,7 +298,7 @@ export default function BookingScreen() {
 
         {selectedRoute && currentRoute && (
           <View style={styles.section}>
-            <Text style={styles.label}>Pickup </Text>
+            <Text style={styles.label}>Pickup Point</Text>
             <View style={styles.pickerContainer}>
               <Picker
                 selectedValue={selectedPickup}
