@@ -55,7 +55,7 @@ export default function HomeScreen() {
         {/* Header Section */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Welcome </Text>
+            <Text style={styles.greeting}>Welcome back</Text>
             <Text style={styles.userName}>{userName}</Text>
           </View>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
